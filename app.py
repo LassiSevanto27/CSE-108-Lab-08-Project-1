@@ -2,13 +2,15 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from flask_sqlalchemy import SQLAlchemy
 from flask_admin import Admin
 from flask_admin.contrib.sqla import ModelView
+from flask_admin import AdminIndexView, expose
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 
-# WTForms needed for the fix
+# WTForms for custom user form
 from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, PasswordField
 from wtforms.validators import DataRequired, Length
+
 
 #initialize Flask app
 app = Flask(__name__)
@@ -36,7 +38,8 @@ class User(db.Model):
     role = db.Column(db.String(20), nullable=False)  #'student', 'teacher', or 'admin'
 
     #relationships
-    enrollments = db.relationship('Enrollment', backref='student', lazy=True, foreign_keys='Enrollment.student_id')
+    enrollments = db.relationship('Enrollment', backref='student', lazy=True,
+                                  foreign_keys='Enrollment.student_id')
     taught_courses = db.relationship('Course', backref='instructor', lazy=True)
 
     def set_password(self, password):
@@ -62,7 +65,8 @@ class Course(db.Model):
     capacity = db.Column(db.Integer, nullable=False)
 
     #relationships
-    enrollments = db.relationship('Enrollment', backref='course', lazy=True, cascade='all, delete-orphan')
+    enrollments = db.relationship('Enrollment', backref='course', lazy=True,
+                                  cascade='all, delete-orphan')
 
     def get_enrolled_count(self):
         """Get number of students enrolled in this course"""
@@ -100,16 +104,24 @@ class UserForm(FlaskForm):
         ('teacher', 'teacher'),
         ('admin', 'admin')
     ])
-    password = PasswordField('Password')  # optional on edit, required on create only
+    password = PasswordField('Password')  # optional on edit
+
+
+#==================== Admin Home Page ====================
+
+class MyAdminHomeView(AdminIndexView):
+    @expose('/')
+    def index(self):
+        return self.render('admin_home.html')  # you already created this
 
 
 #==================== Flask-Admin Setup ====================
 
-#custom ModelView for admin panel
+#custom ModelView for admin panel (User table ONLY)
 class SecureModelView(ModelView):
     """Secure model view that requires admin login"""
 
-    # Use the custom WTForm defined above so WTForms doesn't auto-generate bad fields
+    # Use custom UserForm
     form = UserForm
 
     # Exclude fields that break auto-form generation
@@ -131,8 +143,9 @@ class SecureModelView(ModelView):
         return redirect(url_for('login'))
 
 
+# Base restricted ModelView (Course + Enrollment default behavior)
 class AdminOnlyModelView(ModelView):
-    """ModelView for Course and Enrollment (no custom form)"""
+    """ModelView for Course and Enrollment (no custom form override)"""
     def is_accessible(self):
         return session.get('role') == 'admin'
 
@@ -140,16 +153,61 @@ class AdminOnlyModelView(ModelView):
         return redirect(url_for('login'))
 
 
+# Custom Course admin view WITH working teacher dropdown
+class CourseModelView(AdminOnlyModelView):
+    form_columns = ('course_name', 'teacher_id', 'time', 'capacity')
+
+    # Override field type BEFORE form is bound
+    def scaffold_form(self):
+        form_class = super().scaffold_form()
+        form_class.teacher_id = SelectField('Teacher', coerce=int)
+        return form_class
+
+    # Populate dropdown on create form
+    def create_form(self):
+        form = super().create_form()
+        self._populate_teacher_choices(form)
+        return form
+
+    # Populate dropdown on edit form
+    def edit_form(self, obj):
+        form = super().edit_form(obj)
+        self._populate_teacher_choices(form)
+        return form
+
+    # Load teacher usernames
+    def _populate_teacher_choices(self, form):
+        with app.app_context():
+            teachers = User.query.filter_by(role='teacher').all()
+
+        form.teacher_id.choices = [
+            (t.id, t.username)
+            for t in teachers
+        ]
+
+
+# Enrollment admin view showing Student Username + Full Name + Course Name + Grade
+class EnrollmentModelView(AdminOnlyModelView):
+    column_list = ('student_username', 'student_full_name', 'course_name', 'grade')
+
+    column_formatters = {
+        'student_username': lambda v, c, m, p: m.student.username,
+        'student_full_name': lambda v, c, m, p: m.student.full_name,
+        'course_name': lambda v, c, m, p: m.course.course_name,
+    }
+
 
 #initialize Flask-Admin
-admin = Admin(app, name='ACME University Admin', template_mode='bootstrap3')
+admin = Admin(
+    app,
+    name='ACME University Admin',
+    template_mode='bootstrap3',
+    index_view=MyAdminHomeView()  # custom admin homepage
+)
 
-# Only User uses custom SecureModelView
 admin.add_view(SecureModelView(User, db.session))
-
-# Course and Enrollment use normal admin views
-admin.add_view(AdminOnlyModelView(Course, db.session))
-admin.add_view(AdminOnlyModelView(Enrollment, db.session))
+admin.add_view(CourseModelView(Course, db.session))
+admin.add_view(EnrollmentModelView(Enrollment, db.session))
 
 
 #==================== Routes ====================
@@ -266,7 +324,7 @@ def teacher_dashboard():
 
     courses_data = [{
         'id': c.id,
-        'course_name': c.course_name,
+        'course_name': c.course.course_name,
         'teacher': c.instructor.full_name,
         'time': c.time,
         'enrolled': c.get_enrolled_count(),
@@ -394,4 +452,4 @@ if __name__ == '__main__':
         db.create_all()
         print("Database tables created!")
 
-    app.run(debug=True, port=5001) #PORT LOCATION
+    app.run(debug=True, port=5001)  #PORT LOCATION

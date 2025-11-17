@@ -1,0 +1,41 @@
+{% extends 'admin/master.html' %}
+
+{% block body %}
+
+<div class="container" style="padding-top: 30px; max-width: 900px;">
+
+    <h2>Welcome to the ACME University Admin Panel</h2>
+    <p class="lead">
+        Use this dashboard to manage users, courses, and enrollments throughout the system.
+        All admin tools are available in the navigation bar above.
+    </p>
+
+    <hr>
+
+    <h3>Admin Navigation Guide</h3>
+
+    <ul>
+        <li><strong>User:</strong> Create, edit, or delete Students, Teachers, and Admin accounts.</li>
+        <li><strong>Course:</strong> Add new courses, assign teachers, and configure course capacity and meeting times.</li>
+        <li><strong>Enrollment:</strong> View all enrollments. See student usernames, full names, courses, and grades.</li>
+    </ul>
+
+    <hr>
+
+    <h3>Admin Capabilities (Per Project Requirements)</h3>
+
+    <ul>
+        <li>Create new user accounts (student, teacher, admin).</li>
+        <li>Assign teachers to courses using a dropdown selector.</li>
+        <li>View detailed enrollment information for every student.</li>
+        <li>Edit or update grades for each student enrollment.</li>
+        <li>Delete or modify any record in the system as required.</li>
+    </ul>
+
+    <p class="text-muted" style="margin-top: 20px;">
+        If you need help at any time, navigate using the top menu or revisit this page for guidance.
+    </p>
+
+</div>
+
+{% endblock %}
