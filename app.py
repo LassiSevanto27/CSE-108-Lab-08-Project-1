@@ -5,6 +5,11 @@ from flask_admin.contrib.sqla import ModelView
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 
+# WTForms needed for the fix
+from flask_wtf import FlaskForm
+from wtforms import StringField, SelectField, PasswordField
+from wtforms.validators import DataRequired, Length
+
 #initialize Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'  #change this to a random secret key
@@ -84,22 +89,67 @@ class Enrollment(db.Model):
         return f'<Enrollment Student:{self.student_id} Course:{self.course_id}>'
 
 
+#==================== Custom WTForm for Admin User Creation ====================
+
+class UserForm(FlaskForm):
+    """Form used by Flask-Admin for creating/editing User records"""
+    username = StringField('Username', validators=[DataRequired(), Length(min=1, max=50)])
+    full_name = StringField('Full Name', validators=[DataRequired(), Length(min=1, max=100)])
+    role = SelectField('Role', choices=[
+        ('student', 'student'),
+        ('teacher', 'teacher'),
+        ('admin', 'admin')
+    ])
+    password = PasswordField('Password')  # optional on edit, required on create only
+
+
 #==================== Flask-Admin Setup ====================
 
 #custom ModelView for admin panel
 class SecureModelView(ModelView):
     """Secure model view that requires admin login"""
+
+    # Use the custom WTForm defined above so WTForms doesn't auto-generate bad fields
+    form = UserForm
+
+    # Exclude fields that break auto-form generation
+    form_excluded_columns = (
+        'password_hash',
+        'enrollments',
+        'taught_courses'
+    )
+
+    def on_model_change(self, form, model, is_created):
+        """Hash password before saving"""
+        if form.password.data:
+            model.set_password(form.password.data)
+
     def is_accessible(self):
         return session.get('role') == 'admin'
 
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login'))
 
+
+class AdminOnlyModelView(ModelView):
+    """ModelView for Course and Enrollment (no custom form)"""
+    def is_accessible(self):
+        return session.get('role') == 'admin'
+
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login'))
+
+
+
 #initialize Flask-Admin
 admin = Admin(app, name='ACME University Admin', template_mode='bootstrap3')
+
+# Only User uses custom SecureModelView
 admin.add_view(SecureModelView(User, db.session))
-admin.add_view(SecureModelView(Course, db.session))
-admin.add_view(SecureModelView(Enrollment, db.session))
+
+# Course and Enrollment use normal admin views
+admin.add_view(AdminOnlyModelView(Course, db.session))
+admin.add_view(AdminOnlyModelView(Enrollment, db.session))
 
 
 #==================== Routes ====================
